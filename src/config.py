@@ -1,5 +1,5 @@
 """
-Configuración y constantes de la aplicación PRRA
+PRRA application configuration and constants
 """
 
 # Configuración de PubMed

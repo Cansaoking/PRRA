@@ -1,5 +1,5 @@
 """
-Worker thread para procesamiento en segundo plano
+Worker thread for background processing
 """
 from PyQt5.QtCore import QThread, pyqtSignal
 from typing import Dict, Optional

@@ -5,7 +5,7 @@ Test script for PRRA core modules (non-GUI)
 import sys
 import os
 
-# Añadir directorio raíz al path
+# Add root directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 def test_document_processor():

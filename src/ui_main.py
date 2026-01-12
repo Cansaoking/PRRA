@@ -1,5 +1,5 @@
 """
-Interfaz gráfica principal de PRRA
+PRRA main graphical interface
 """
 import sys
 import os
