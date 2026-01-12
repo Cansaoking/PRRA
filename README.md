@@ -38,6 +38,7 @@ PRRA/
 
 - Python 3.8 o superior
 - GPU con CUDA (opcional, pero recomendado)
+- 20 GB de espacio libre (para modelos de IA)
 
 ### Pasos
 
@@ -56,6 +57,17 @@ source venv/bin/activate  # En Windows: venv\Scripts\activate
 3. Instalar dependencias:
 ```bash
 pip install -r requirements.txt
+```
+
+**Nota**: La primera ejecución descargará el modelo de IA seleccionado (~4-14 GB según el modelo), lo cual puede tardar varios minutos.
+
+### Instalación rápida (para pruebas)
+
+Si solo quieres probar los módulos core sin la interfaz gráfica:
+
+```bash
+pip install python-docx PyPDF2 striprtf reportlab biopython
+python test_modules.py
 ```
 
 ## Uso
