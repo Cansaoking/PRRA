@@ -1,0 +1,189 @@
+"""
+Worker thread for background processing
+"""
+from PyQt5.QtCore import QThread, pyqtSignal
+from typing import Dict, Optional
+import traceback
+
+from src.document_processor import DocumentProcessor
+from src.ai_analyzer import AIAnalyzer
+from src.pubmed_searcher import PubMedSearcher
+from src.report_generator import ReportGenerator
+
+
+class WorkerThread(QThread):
+    """Thread de trabajo para procesamiento asíncrono"""
+    
+    # Señales
+    progress = pyqtSignal(int)
+    log_message = pyqtSignal(str)
+    result = pyqtSignal(dict)
+    error = pyqtSignal(str)
+    request_confirmation = pyqtSignal(str, dict)  # Para modo manual
+    
+    def __init__(
+        self,
+        file_path: str,
+        num_keyphrases: int,
+        num_articles: int,
+        model_name: str,
+        prompts: Dict[str, str],
+        manual_mode: bool,
+        output_format: str
+    ):
+        super().__init__()
+        self.file_path = file_path
+        self.num_keyphrases = num_keyphrases
+        self.num_articles = num_articles
+        self.model_name = model_name
+        self.prompts = prompts
+        self.manual_mode = manual_mode
+        self.output_format = output_format
+        
+        # Estado
+        self.should_continue = True
+        self.confirmation_data = None
+    
+    def run(self):
+        """Ejecuta el proceso completo de revisión"""
+        try:
+            # Paso 1: Extraer texto del manuscrito
+            self.log_message.emit("📄 Extracting text from manuscript...")
+            self.progress.emit(5)
+            
+            doc_processor = DocumentProcessor()
+            manuscript_text = doc_processor.extract_text(self.file_path)
+            
+            if not manuscript_text.strip():
+                raise ValueError("The manuscript appears to be empty or unreadable")
+            
+            self.log_message.emit(f"✓ Extracted {len(manuscript_text)} characters")
+            self.progress.emit(10)
+            
+            # Paso 2: Detectar tipo de artículo
+            self.log_message.emit("🔍 Detecting article type...")
+            article_type = doc_processor.detect_article_type(manuscript_text)
+            self.log_message.emit(f"✓ Article type: {article_type}")
+            self.progress.emit(15)
+            
+            # Paso 3: Inicializar y cargar modelo de IA
+            self.log_message.emit(f"🤖 Loading AI model: {self.model_name}...")
+            self.log_message.emit("⏳ This may take a few minutes the first time...")
+            ai_analyzer = AIAnalyzer(self.model_name)
+            ai_analyzer.load_model()
+            self.log_message.emit("✓ Model loaded successfully")
+            self.progress.emit(25)
+            
+            # Paso 4: Extraer frases clave
+            self.log_message.emit(f"🔑 Extracting {self.num_keyphrases} key phrases...")
+            keyphrases = ai_analyzer.extract_keyphrases(
+                manuscript_text,
+                self.prompts.get('keyphrases', ''),
+                self.num_keyphrases
+            )
+            
+            if not keyphrases:
+                raise ValueError("Could not extract key phrases from the manuscript")
+            
+            self.log_message.emit(f"✓ Extracted key phrases:")
+            for kp in keyphrases:
+                self.log_message.emit(f"  • {kp}")
+            self.progress.emit(35)
+            
+            # Confirmación manual si está activado
+            if self.manual_mode:
+                self.log_message.emit("⏸ Waiting for user confirmation...")
+                # Aquí se podría emitir señal para confirmación
+                # Por ahora continuamos automáticamente
+            
+            # Paso 5: Buscar en PubMed
+            self.log_message.emit("🔬 Searching PubMed database...")
+            pubmed_searcher = PubMedSearcher()
+            pubmed_data = pubmed_searcher.search_articles(keyphrases, self.num_articles)
+            
+            if not pubmed_data:
+                self.log_message.emit("⚠ Warning: No articles found in PubMed")
+                self.log_message.emit("⚠ The evaluation will proceed with limited reference data")
+            else:
+                total_articles = sum(len(articles) for articles in pubmed_data.values())
+                self.log_message.emit(f"✓ Found {total_articles} articles:")
+                for kp, articles in pubmed_data.items():
+                    self.log_message.emit(f"  • '{kp}': {len(articles)} articles")
+            
+            self.progress.emit(55)
+            
+            # Confirmación manual si está activado
+            if self.manual_mode:
+                self.log_message.emit("⏸ Waiting for user confirmation...")
+            
+            # Paso 6: Analizar manuscrito con IA
+            self.log_message.emit("📊 Analyzing manuscript with AI...")
+            self.log_message.emit("⏳ This may take several minutes...")
+            
+            evaluation = ai_analyzer.analyze_manuscript(
+                manuscript_text,
+                pubmed_data,
+                self.prompts.get('analysis', ''),
+                article_type
+            )
+            
+            self.log_message.emit("✓ Analysis completed")
+            self.log_message.emit(f"  • Major points: {len(evaluation.get('major', []))}")
+            self.log_message.emit(f"  • Minor points: {len(evaluation.get('minor', []))}")
+            self.log_message.emit(f"  • Other points: {len(evaluation.get('other', []))}")
+            self.log_message.emit(f"  • Suggestions: {len(evaluation.get('suggestions', []))}")
+            self.progress.emit(75)
+            
+            # Paso 7: Generar informes
+            self.log_message.emit("📝 Generating reports...")
+            
+            report_generator = ReportGenerator(self.output_format)
+            
+            # Informe para autor
+            author_report = report_generator.generate_author_report(
+                self.file_path,
+                evaluation
+            )
+            self.log_message.emit(f"✓ Author report: {author_report}")
+            
+            self.progress.emit(85)
+            
+            # Informe para auditoría
+            auditor_report = report_generator.generate_auditor_report(
+                self.file_path,
+                evaluation,
+                pubmed_data,
+                keyphrases,
+                manuscript_text,
+                article_type
+            )
+            self.log_message.emit(f"✓ Auditor report: {auditor_report}")
+            
+            self.progress.emit(95)
+            
+            # Liberar memoria del modelo
+            ai_analyzer.unload_model()
+            
+            self.progress.emit(100)
+            self.log_message.emit("✅ Review completed successfully!")
+            
+            # Emitir resultado
+            self.result.emit({
+                'success': True,
+                'author_report': author_report,
+                'auditor_report': auditor_report,
+                'evaluation': evaluation,
+                'keyphrases': keyphrases,
+                'article_type': article_type,
+                'total_articles': sum(len(articles) for articles in pubmed_data.values()) if pubmed_data else 0
+            })
+            
+        except Exception as e:
+            error_msg = f"Error: {str(e)}\n{traceback.format_exc()}"
+            self.log_message.emit(f"❌ {error_msg}")
+            self.error.emit(error_msg)
+    
+    def stop(self):
+        """Detiene el procesamiento"""
+        self.should_continue = False
+        self.quit()
