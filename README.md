@@ -7,8 +7,11 @@ Sistema automatizado de revisión por pares para manuscritos científicos utiliz
 - 📄 **Múltiples formatos de entrada**: PDF, DOCX, DOC, RTF, TXT
 - 🤖 **Análisis con IA local**: Utiliza modelos de HuggingFace (Qwen, DeepSeek, Phi-3, Llama)
 - 🔬 **Búsqueda en PubMed**: Búsqueda automática de artículos de referencia
+- 🔑 **Extracción inteligente de keywords**: Usa keywords del autor + IA con enfoque médico/científico
 - 📊 **Evaluación completa**: Calidad del inglés, estructura, metodología, actualización de contenidos
 - 📝 **Doble informe**: Informe para el autor y informe detallado para auditoría
+- ✏️ **Edición de informes**: Revisión y edición manual opcional antes de generar archivos finales
+- 📁 **Directorio de salida personalizable**: Elige dónde guardar los informes generados
 - 💬 **Prompts personalizables**: Sistema de prompts editables y guardables en JSON
 - 🎨 **Interfaz profesional**: PyQt5 con diseño modular y progreso en tiempo real
 - 🚀 **Soporte GPU**: Detección automática de CUDA para aceleración
@@ -23,10 +26,11 @@ PRRA/
 ├── src/
 │   ├── __init__.py
 │   ├── config.py                # Configuración y constantes
-│   ├── document_processor.py    # Extracción de texto
+│   ├── document_processor.py    # Extracción de texto y keywords
 │   ├── ai_analyzer.py           # Análisis con IA
 │   ├── pubmed_searcher.py       # Búsqueda en PubMed
 │   ├── report_generator.py      # Generación de informes
+│   ├── report_editor_dialog.py  # Editor de informes
 │   ├── worker.py                # Thread de procesamiento
 │   └── ui_main.py               # Interfaz de usuario
 └── requirements.txt             # Dependencias
@@ -86,11 +90,28 @@ python main.py
    - Artículos a buscar en PubMed (5-50)
    - Modelo de IA a utilizar
    - Formato de salida (PDF o DOCX)
+   - Directorio de salida personalizado (opcional)
+   - Edición manual de informes (opcional)
 3. **Personalizar prompts** (opcional): Editar plantillas de prompts en la pestaña "Prompts"
-4. **Iniciar revisión**: El proceso es automático
-5. **Revisar resultados**: Se generan dos informes:
+4. **Iniciar revisión**: El proceso detecta automáticamente keywords del autor y las complementa con IA
+5. **Revisar y editar** (si está habilitado): Editar contenido de informes antes de guardar
+6. **Revisar resultados**: Se generan dos informes:
    - `*_Author_Report.pdf/docx`: Para el autor del manuscrito
    - `*_Auditor_Report.pdf/docx`: Para auditoría interna
+
+### Mejoras en extracción de keywords
+
+La aplicación ahora utiliza un enfoque híbrido inteligente:
+
+1. **Extracción de keywords del autor**: Busca y extrae las keywords que los autores incluyen en el manuscrito
+   - Soporta múltiples formatos: "Keywords:", "Key words:", "Index terms:", "Palabras clave:"
+   - Reconoce diferentes separadores: comas, punto y coma, bullets
+2. **Complemento con IA**: Si faltan keywords o no se encuentran, la IA extrae frases clave adicionales
+3. **Enfoque médico/científico mejorado**: El prompt de IA está optimizado para identificar conceptos médicos/científicos específicos
+   - Se enfoca en temas principales, enfermedades, procesos biológicos, receptores, proteínas
+   - Evita términos metodológicos generales que pueden causar búsquedas irrelevantes
+
+Esto soluciona el problema reportado donde el tema era "receptores CGRP" pero se encontraban artículos de diabetes.
 
 ### Modo manual
 
