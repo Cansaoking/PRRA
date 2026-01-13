@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QTextEdit, QComboBox, QCheckBox,
     QFileDialog, QProgressBar, QTabWidget, QMessageBox, QPlainTextEdit,
-    QGroupBox, QSpinBox, QSplitter
+    QGroupBox, QSpinBox, QSplitter, QDialog
 )
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QFont, QIcon
@@ -489,7 +489,7 @@ class MainWindow(QMainWindow):
         dialog = ReportEditorDialog(data['evaluation'], self)
         result = dialog.exec_()
         
-        if result == ReportEditorDialog.Accepted:
+        if result == QDialog.Accepted:
             if dialog.was_modified():
                 self.log_message("✓ Reports modified by user")
             else:
@@ -500,6 +500,9 @@ class MainWindow(QMainWindow):
         else:
             self.log_message("⚠ Report editing cancelled, using original content")
             self.worker.edited_reports = data['evaluation']
+        
+        # Notificar al worker que la edición está completa
+        self.worker.notify_edit_complete()
     
     def stop_review(self):
         """Detiene el proceso de revisión"""

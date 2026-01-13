@@ -1,7 +1,7 @@
 """
 Worker thread for background processing
 """
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QWaitCondition
 from typing import Dict, Optional
 import traceback
 import os
@@ -53,6 +53,11 @@ class WorkerThread(QThread):
         self.should_continue = True
         self.confirmation_data = None
         self.edited_reports = None  # Para almacenar reportes editados
+        
+        # Sincronización para edición de reportes
+        self.edit_mutex = QMutex()
+        self.edit_condition = QWaitCondition()
+        self.edit_ready = False
     
     def run(self):
         """Ejecuta el proceso completo de revisión"""
@@ -173,13 +178,12 @@ class WorkerThread(QThread):
                 # Emitir señal para edición en el hilo principal
                 self.request_report_edit.emit({'evaluation': evaluation})
                 
-                # Esperar a que el usuario edite (con timeout)
-                wait_interval = 0.5
-                elapsed = 0
-                
-                while self.edited_reports is None and elapsed < MAX_EDIT_TIMEOUT_SECONDS:
-                    self.msleep(int(wait_interval * 1000))
-                    elapsed += wait_interval
+                # Esperar a que el usuario edite usando wait condition (más eficiente que polling)
+                self.edit_mutex.lock()
+                if not self.edit_ready:
+                    # Esperar con timeout (en milisegundos)
+                    self.edit_condition.wait(self.edit_mutex, MAX_EDIT_TIMEOUT_SECONDS * 1000)
+                self.edit_mutex.unlock()
                 
                 if self.edited_reports is not None:
                     evaluation = self.edited_reports
@@ -243,6 +247,13 @@ class WorkerThread(QThread):
             error_msg = f"Error: {str(e)}\n{traceback.format_exc()}"
             self.log_message.emit(f"❌ {error_msg}")
             self.error.emit(error_msg)
+    
+    def notify_edit_complete(self):
+        """Notifica que la edición de reportes ha sido completada"""
+        self.edit_mutex.lock()
+        self.edit_ready = True
+        self.edit_condition.wakeAll()
+        self.edit_mutex.unlock()
     
     def stop(self):
         """Detiene el procesamiento"""

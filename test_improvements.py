@@ -15,6 +15,11 @@ def extract_keywords_standalone(text: str) -> List[str]:
     """
     Standalone version of extract_keywords for testing without dependencies
     (Matches implementation in src/document_processor.py)
+    
+    NOTE: This function intentionally duplicates DocumentProcessor.extract_keywords()
+    to allow testing without installing PyQt5, docx, PyPDF2 and other heavy dependencies.
+    This is preferred for CI/CD environments. Changes to DocumentProcessor.extract_keywords()
+    should be reflected here.
     """
     keywords = []
     
