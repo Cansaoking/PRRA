@@ -2,10 +2,8 @@
 Módulo para extracción de texto de diferentes formatos de documento
 """
 import os
-from typing import Optional
-from docx import Document
-from PyPDF2 import PdfReader
-from striprtf.striprtf import rtf_to_text
+import re
+from typing import Optional, List
 
 
 class DocumentProcessor:
@@ -48,6 +46,7 @@ class DocumentProcessor:
     @staticmethod
     def _extract_from_pdf(file_path: str) -> str:
         """Extrae texto de un archivo PDF"""
+        from PyPDF2 import PdfReader
         reader = PdfReader(file_path)
         text_parts = []
         for page in reader.pages:
@@ -59,12 +58,14 @@ class DocumentProcessor:
     @staticmethod
     def _extract_from_docx(file_path: str) -> str:
         """Extrae texto de un archivo DOCX o DOC"""
+        from docx import Document
         doc = Document(file_path)
         return '\n'.join(paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip())
     
     @staticmethod
     def _extract_from_rtf(file_path: str) -> str:
         """Extrae texto de un archivo RTF"""
+        from striprtf.striprtf import rtf_to_text
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             rtf_content = f.read()
         return rtf_to_text(rtf_content)
@@ -125,3 +126,43 @@ class DocumentProcessor:
         if len(text) <= max_chars:
             return text
         return text[:max_chars] + "..."
+    
+    @staticmethod
+    def extract_keywords(text: str) -> List[str]:
+        """
+        Extrae palabras clave (keywords) del manuscrito si están presentes
+        
+        Args:
+            text: Texto completo del manuscrito
+            
+        Returns:
+            Lista de keywords extraídas del manuscrito, vacía si no se encuentran
+        """
+        keywords = []
+        
+        # Patrones para encontrar secciones de keywords en diferentes formatos
+        patterns = [
+            r'(?i)keywords?\s*[:;]\s*([^\n]+)',  # Keywords: palabra1, palabra2
+            r'(?i)key\s+words?\s*[:;]\s*([^\n]+)',  # Key words: palabra1, palabra2
+            r'(?i)index\s+terms?\s*[:;]\s*([^\n]+)',  # Index terms: palabra1, palabra2
+            r'(?i)palabras?\s+clave\s*[:;]\s*([^\n]+)',  # Palabras clave: (Spanish)
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, text)
+            if matches:
+                # Tomar el primer match
+                keywords_text = matches[0].strip()
+                # Dividir por delimitadores comunes
+                keywords = re.split(r'[;,•·]+', keywords_text)
+                keywords = [kw.strip() for kw in keywords if kw.strip()]
+                break
+        
+        # Filtrar keywords vacías o muy cortas
+        keywords = [kw for kw in keywords if len(kw) > 2]
+        
+        # Limitar a 10 keywords máximo (lo más común)
+        if len(keywords) > 10:
+            keywords = keywords[:10]
+        
+        return keywords

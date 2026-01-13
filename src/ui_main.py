@@ -4,11 +4,12 @@ PRRA main graphical interface
 import sys
 import os
 import json
+import re
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QTextEdit, QComboBox, QCheckBox,
     QFileDialog, QProgressBar, QTabWidget, QMessageBox, QPlainTextEdit,
-    QGroupBox, QSpinBox, QSplitter
+    QGroupBox, QSpinBox, QSplitter, QDialog
 )
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QFont, QIcon
@@ -20,6 +21,7 @@ from src.config import (
 )
 from src.document_processor import DocumentProcessor
 from src.worker import WorkerThread
+from src.report_editor_dialog import ReportEditorDialog
 
 
 class MainWindow(QMainWindow):
@@ -30,6 +32,8 @@ class MainWindow(QMainWindow):
         self.file_path = None
         self.prompts = DEFAULT_PROMPTS.copy()
         self.worker = None
+        self.output_directory = None  # Custom output directory
+        self.imported_articles_file = None  # Path to imported articles file
         
         self.init_ui()
     
@@ -186,6 +190,28 @@ class MainWindow(QMainWindow):
         art_layout.addStretch()
         pubmed_layout.addLayout(art_layout)
         
+        # Opción para importar artículos
+        import_layout = QHBoxLayout()
+        self.import_articles_checkbox = QCheckBox("Import pre-selected articles (skip PubMed search)")
+        self.import_articles_checkbox.setToolTip("Load articles from a text file with citations and abstracts")
+        self.import_articles_checkbox.stateChanged.connect(self.on_import_articles_changed)
+        import_layout.addWidget(self.import_articles_checkbox)
+        pubmed_layout.addLayout(import_layout)
+        
+        self.import_file_label = QLabel("No file selected")
+        self.import_file_label.setStyleSheet("padding: 3px; background-color: #f0f0f0; border-radius: 3px; margin-left: 20px;")
+        self.import_file_label.setVisible(False)
+        pubmed_layout.addWidget(self.import_file_label)
+        
+        btn_import_layout = QHBoxLayout()
+        btn_import_layout.addSpacing(20)
+        self.btn_import_file = QPushButton("📄 Load Articles File...")
+        self.btn_import_file.clicked.connect(self.load_articles_file)
+        self.btn_import_file.setVisible(False)
+        btn_import_layout.addWidget(self.btn_import_file)
+        btn_import_layout.addStretch()
+        pubmed_layout.addLayout(btn_import_layout)
+        
         pubmed_group.setLayout(pubmed_layout)
         layout.addWidget(pubmed_group)
         
@@ -223,6 +249,18 @@ class MainWindow(QMainWindow):
         format_layout.addStretch()
         output_layout.addLayout(format_layout)
         
+        # Output directory selection
+        dir_layout = QHBoxLayout()
+        dir_layout.addWidget(QLabel("Output directory:"))
+        self.output_dir_label = QLabel("Same as manuscript")
+        self.output_dir_label.setStyleSheet("padding: 3px; background-color: #f0f0f0; border-radius: 3px;")
+        dir_layout.addWidget(self.output_dir_label)
+        
+        btn_choose_dir = QPushButton("📁 Choose...")
+        btn_choose_dir.clicked.connect(self.choose_output_directory)
+        dir_layout.addWidget(btn_choose_dir)
+        output_layout.addLayout(dir_layout)
+        
         output_group.setLayout(output_layout)
         layout.addWidget(output_group)
         
@@ -233,6 +271,31 @@ class MainWindow(QMainWindow):
         self.manual_checkbox = QCheckBox("Manual mode (confirm intermediate steps)")
         self.manual_checkbox.setToolTip("Enable to review and confirm each processing step")
         options_layout.addWidget(self.manual_checkbox)
+        
+        self.edit_reports_checkbox = QCheckBox("Allow manual editing of reports before saving")
+        self.edit_reports_checkbox.setToolTip("Enable to review and edit reports before they are saved")
+        self.edit_reports_checkbox.setChecked(False)
+        options_layout.addWidget(self.edit_reports_checkbox)
+        
+        self.clean_cache_checkbox = QCheckBox("Clean cache on exit (models, temporary files)")
+        self.clean_cache_checkbox.setToolTip("Automatically remove downloaded models and temporary files when closing the application")
+        self.clean_cache_checkbox.setChecked(False)
+        options_layout.addWidget(self.clean_cache_checkbox)
+        
+        # Botón de limpieza manual de cache
+        cache_button_layout = QHBoxLayout()
+        cache_button_layout.addSpacing(20)
+        btn_clean_cache = QPushButton("🗑️ Clean Cache Now...")
+        btn_clean_cache.setToolTip("Manually clean cache and temporary files without closing the application")
+        btn_clean_cache.clicked.connect(self.clean_cache_now)
+        cache_button_layout.addWidget(btn_clean_cache)
+        
+        btn_view_cache = QPushButton("📊 View Cache Info")
+        btn_view_cache.setToolTip("View information about current cache usage")
+        btn_view_cache.clicked.connect(self.view_cache_info)
+        cache_button_layout.addWidget(btn_view_cache)
+        cache_button_layout.addStretch()
+        options_layout.addLayout(cache_button_layout)
         
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
@@ -346,6 +409,190 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", f"Could not read file: {str(e)}")
                 self.file_path = None
     
+    def choose_output_directory(self):
+        """Permite al usuario elegir directorio de salida personalizado"""
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Choose Output Directory",
+            os.path.dirname(self.file_path) if self.file_path else ""
+        )
+        
+        if directory:
+            self.output_directory = directory
+            self.output_dir_label.setText(f"📁 {os.path.basename(directory)}")
+            self.log_message(f"Output directory set to: {directory}")
+        else:
+            # User cancelled, reset to default
+            self.output_directory = None
+            self.output_dir_label.setText("Same as manuscript")
+    
+    def on_import_articles_changed(self, state):
+        """Maneja el cambio en el checkbox de importación de artículos"""
+        is_checked = state == Qt.Checked
+        self.import_file_label.setVisible(is_checked)
+        self.btn_import_file.setVisible(is_checked)
+        
+        if not is_checked:
+            self.imported_articles_file = None
+            self.import_file_label.setText("No file selected")
+    
+    def load_articles_file(self):
+        """Carga un archivo con artículos pre-seleccionados"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Articles File",
+            "",
+            "Text Files (*.txt);;All Files (*.*)"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Validar que tiene contenido
+                if not content.strip():
+                    QMessageBox.warning(self, "Error", "The file is empty")
+                    return
+                
+                # Quick validation: check if it looks like citations
+                if not re.search(r'\(\d{4}\)', content):
+                    reply = QMessageBox.question(
+                        self,
+                        "Confirm",
+                        "The file doesn't appear to contain citations with years in (YYYY) format.\nDo you want to continue anyway?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        return
+                
+                self.imported_articles_file = file_path
+                self.import_file_label.setText(f"📄 {os.path.basename(file_path)}")
+                self.log_message(f"Loaded articles file: {file_path}")
+                
+                # Try to parse and show count
+                from src.article_importer import ArticleImporter
+                articles = ArticleImporter.parse_citations(content)
+                self.log_message(f"✓ Parsed {len(articles)} article(s) from file")
+                
+                if len(articles) == 0:
+                    QMessageBox.warning(
+                        self,
+                        "Warning",
+                        "No articles could be parsed from the file. Please check the format."
+                    )
+                
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not read file: {str(e)}")
+                self.imported_articles_file = None
+    
+    def view_cache_info(self):
+        """Muestra información sobre el cache actual"""
+        try:
+            from src.cache_manager import CacheManager
+            from pathlib import Path
+            
+            base_path = Path(__file__).parent.parent
+            info = CacheManager.get_cache_info(base_path)
+            
+            # Construir mensaje con información
+            msg = f"Total Cache Size: {info['total_size_str']}\n\n"
+            
+            if info['model_cache']:
+                msg += "AI Models Cache:\n"
+                for cache_item in info['model_cache']:
+                    msg += f"  • {cache_item['path']}\n    Size: {cache_item['size_str']}\n"
+                msg += "\n"
+            
+            if info['pycache']:
+                total_pycache = sum(item['size'] for item in info['pycache'])
+                msg += f"Python Cache (__pycache__):\n"
+                msg += f"  • {len(info['pycache'])} directories\n"
+                msg += f"  • Total size: {CacheManager.format_size(total_pycache)}\n"
+            
+            if info['total_size'] == 0:
+                msg = "No cache files found."
+            
+            QMessageBox.information(self, "Cache Information", msg)
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not retrieve cache info: {str(e)}")
+    
+    def clean_cache_now(self):
+        """Limpia el cache manualmente"""
+        try:
+            from src.cache_manager import CacheManager
+            from pathlib import Path
+            
+            # Obtener información primero
+            base_path = Path(__file__).parent.parent
+            info = CacheManager.get_cache_info(base_path)
+            
+            if info['total_size'] == 0:
+                QMessageBox.information(
+                    self,
+                    "Cache Clean",
+                    "No cache files found to clean."
+                )
+                return
+            
+            # Confirmar limpieza
+            reply = QMessageBox.question(
+                self,
+                'Confirm Cache Cleaning',
+                f'This will remove all cache and temporary files.\n\n'
+                f'Current cache size: {info["total_size_str"]}\n\n'
+                f'Items to clean:\n'
+                f'- AI models (HuggingFace/Torch): {len(info["model_cache"])} directories\n'
+                f'- Python cache files: {len(info["pycache"])} directories\n\n'
+                f'Warning: Downloaded AI models will need to be re-downloaded.\n\n'
+                f'Continue?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                # Mostrar progreso
+                progress = QMessageBox(self)
+                progress.setWindowTitle('Cleaning Cache')
+                progress.setText('Cleaning cache and temporary files...')
+                progress.setStandardButtons(QMessageBox.NoButton)
+                progress.show()
+                QApplication.processEvents()
+                
+                # Limpiar cache
+                results = CacheManager.clean_cache(
+                    clean_models=True,
+                    clean_pycache=True,
+                    base_path=base_path
+                )
+                
+                progress.close()
+                
+                # Mostrar resultados
+                if results['success'] or len(results['cleaned']) > 0:
+                    size_freed = CacheManager.format_size(results['size_freed'])
+                    msg = f'Successfully cleaned cache!\n\n'
+                    msg += f'Space freed: {size_freed}\n'
+                    msg += f'Items cleaned: {len(results["cleaned"])}'
+                    
+                    if results['errors']:
+                        msg += f'\n\nWarnings:\n' + '\n'.join(results['errors'])
+                    
+                    self.log_message(f"✓ Cache cleaned: {size_freed} freed")
+                    QMessageBox.information(self, 'Cache Cleaned', msg)
+                else:
+                    error_msg = '\n'.join(results['errors'])
+                    QMessageBox.warning(
+                        self,
+                        'Cleanup Failed',
+                        f'Could not clean cache:\n\n{error_msg}'
+                    )
+                    
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Error cleaning cache: {str(e)}")
+    
     def save_prompts(self):
         """Guarda prompts a archivo JSON"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -398,6 +645,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Please select a manuscript file first")
             return
         
+        # Validar que si está marcado importar, tenga un archivo
+        if self.import_articles_checkbox.isChecked() and not self.imported_articles_file:
+            QMessageBox.warning(self, "Error", "Please load an articles file or uncheck the import option")
+            return
+        
         # Validar prompts
         try:
             self.prompts = json.loads(self.prompt_editor.toPlainText())
@@ -426,7 +678,10 @@ class MainWindow(QMainWindow):
             model_name=self.model_combo.currentText(),
             prompts=self.prompts,
             manual_mode=self.manual_checkbox.isChecked(),
-            output_format=self.output_combo.currentText()
+            output_format=self.output_combo.currentText(),
+            output_directory=self.output_directory,
+            allow_edit_reports=self.edit_reports_checkbox.isChecked(),
+            imported_articles_file=self.imported_articles_file if self.import_articles_checkbox.isChecked() else None
         )
         
         # Conectar señales
@@ -435,12 +690,36 @@ class MainWindow(QMainWindow):
         self.worker.result.connect(self.on_review_complete)
         self.worker.error.connect(self.on_review_error)
         self.worker.finished.connect(self.on_worker_finished)
+        self.worker.request_report_edit.connect(self.on_report_edit_request)
         
         # Iniciar
         self.worker.start()
         self.log_message("=" * 60)
         self.log_message("Starting automated peer review process...")
         self.log_message("=" * 60)
+    
+    def on_report_edit_request(self, data: dict):
+        """Maneja la solicitud de edición de reportes"""
+        self.log_message("📝 Opening report editor for manual verification...")
+        
+        # Mostrar diálogo de edición
+        dialog = ReportEditorDialog(data['evaluation'], self)
+        result = dialog.exec_()
+        
+        if result == QDialog.Accepted:
+            if dialog.was_modified():
+                self.log_message("✓ Reports modified by user")
+            else:
+                self.log_message("✓ Reports confirmed without changes")
+            
+            # Pasar la evaluación editada de vuelta al worker
+            self.worker.edited_reports = dialog.get_evaluation()
+        else:
+            self.log_message("⚠ Report editing cancelled, using original content")
+            self.worker.edited_reports = data['evaluation']
+        
+        # Notificar al worker que la edición está completa
+        self.worker.notify_edit_complete()
     
     def stop_review(self):
         """Detiene el proceso de revisión"""
@@ -485,6 +764,92 @@ class MainWindow(QMainWindow):
         # Scroll al final
         scrollbar = self.log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+    
+    def closeEvent(self, event):
+        """Maneja el evento de cierre de la aplicación"""
+        # Verificar si hay un worker en ejecución
+        if self.worker and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                'Confirm Exit',
+                'A review is currently in progress. Are you sure you want to exit?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.No:
+                event.ignore()
+                return
+            else:
+                # Detener el worker
+                self.worker.stop()
+                self.worker.wait(2000)  # Esperar máximo 2 segundos
+        
+        # Limpiar cache si está habilitado
+        if self.clean_cache_checkbox.isChecked():
+            reply = QMessageBox.question(
+                self,
+                'Clean Cache',
+                'Do you want to clean all cache and temporary files?\n\n'
+                'This will remove:\n'
+                '- Downloaded AI models (will need to re-download next time)\n'
+                '- Python cache files (__pycache__)\n'
+                '- Torch/HuggingFace cache\n\n'
+                'This may free up several GB of disk space.',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                try:
+                    from src.cache_manager import CacheManager
+                    from pathlib import Path
+                    
+                    # Mostrar progreso
+                    progress = QMessageBox(self)
+                    progress.setWindowTitle('Cleaning Cache')
+                    progress.setText('Cleaning cache and temporary files...')
+                    progress.setStandardButtons(QMessageBox.NoButton)
+                    progress.show()
+                    QApplication.processEvents()
+                    
+                    # Limpiar cache
+                    base_path = Path(__file__).parent.parent
+                    results = CacheManager.clean_cache(
+                        clean_models=True,
+                        clean_pycache=True,
+                        base_path=base_path
+                    )
+                    
+                    progress.close()
+                    
+                    # Mostrar resultados
+                    if results['success']:
+                        size_freed = CacheManager.format_size(results['size_freed'])
+                        QMessageBox.information(
+                            self,
+                            'Cache Cleaned',
+                            f'Successfully cleaned cache!\n\n'
+                            f'Space freed: {size_freed}\n'
+                            f'Items cleaned: {len(results["cleaned"])}'
+                        )
+                    else:
+                        error_msg = '\n'.join(results['errors'])
+                        QMessageBox.warning(
+                            self,
+                            'Partial Cleanup',
+                            f'Cache cleaning completed with some errors:\n\n{error_msg}'
+                        )
+                        
+                except Exception as e:
+                    QMessageBox.warning(
+                        self,
+                        'Error',
+                        f'Error cleaning cache: {str(e)}'
+                    )
+        
+        # Aceptar el evento de cierre
+        event.accept()
 
 
 def main():

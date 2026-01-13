@@ -3,7 +3,6 @@ Módulo para búsqueda de artículos en PubMed
 """
 import datetime
 from typing import List, Dict, Optional
-from Bio import Entrez
 from src.config import (
     ENTREZ_EMAIL,
     ENTREZ_TOOL,
@@ -23,6 +22,8 @@ class PubMedSearcher:
         Args:
             email: Email para identificación en Entrez
         """
+        # Lazy import: defer Bio.Entrez import until first search
+        from Bio import Entrez
         Entrez.email = email
         Entrez.tool = ENTREZ_TOOL
     
@@ -106,6 +107,7 @@ class PubMedSearcher:
             Lista de PMIDs
         """
         try:
+            from Bio import Entrez
             handle = Entrez.esearch(
                 db="pubmed",
                 term=query,
@@ -134,6 +136,7 @@ class PubMedSearcher:
             Lista de PMIDs
         """
         try:
+            from Bio import Entrez
             handle = Entrez.esearch(
                 db="pubmed",
                 term=query,
@@ -158,6 +161,7 @@ class PubMedSearcher:
             Lista de diccionarios con información de artículos
         """
         try:
+            from Bio import Entrez
             fetch_handle = Entrez.efetch(db="pubmed", id=pmids, retmode="xml")
             articles_xml = Entrez.read(fetch_handle)
             fetch_handle.close()

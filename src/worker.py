@@ -1,14 +1,18 @@
 """
 Worker thread for background processing
 """
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QWaitCondition
 from typing import Dict, Optional
 import traceback
+import os
 
 from src.document_processor import DocumentProcessor
 from src.ai_analyzer import AIAnalyzer
 from src.pubmed_searcher import PubMedSearcher
 from src.report_generator import ReportGenerator
+
+# Constants
+MAX_EDIT_TIMEOUT_SECONDS = 600  # 10 minutes maximum wait for user editing
 
 
 class WorkerThread(QThread):
@@ -20,6 +24,7 @@ class WorkerThread(QThread):
     result = pyqtSignal(dict)
     error = pyqtSignal(str)
     request_confirmation = pyqtSignal(str, dict)  # Para modo manual
+    request_report_edit = pyqtSignal(dict)  # Para edición de reportes
     
     def __init__(
         self,
@@ -29,7 +34,10 @@ class WorkerThread(QThread):
         model_name: str,
         prompts: Dict[str, str],
         manual_mode: bool,
-        output_format: str
+        output_format: str,
+        output_directory: Optional[str] = None,
+        allow_edit_reports: bool = False,
+        imported_articles_file: Optional[str] = None
     ):
         super().__init__()
         self.file_path = file_path
@@ -39,10 +47,19 @@ class WorkerThread(QThread):
         self.prompts = prompts
         self.manual_mode = manual_mode
         self.output_format = output_format
+        self.output_directory = output_directory
+        self.allow_edit_reports = allow_edit_reports
+        self.imported_articles_file = imported_articles_file
         
         # Estado
         self.should_continue = True
         self.confirmation_data = None
+        self.edited_reports = None  # Para almacenar reportes editados
+        
+        # Sincronización para edición de reportes
+        self.edit_mutex = QMutex()
+        self.edit_condition = QWaitCondition()
+        self.edit_ready = False
     
     def run(self):
         """Ejecuta el proceso completo de revisión"""
@@ -66,6 +83,18 @@ class WorkerThread(QThread):
             self.log_message.emit(f"✓ Article type: {article_type}")
             self.progress.emit(15)
             
+            # Paso 2b: Extraer keywords del manuscrito (si existen)
+            self.log_message.emit("🔍 Looking for author-provided keywords...")
+            manuscript_keywords = doc_processor.extract_keywords(manuscript_text)
+            
+            if manuscript_keywords:
+                self.log_message.emit(f"✓ Found {len(manuscript_keywords)} keywords in manuscript:")
+                for kw in manuscript_keywords:
+                    self.log_message.emit(f"  • {kw}")
+            else:
+                self.log_message.emit("⚠ No keywords found in manuscript, will use AI extraction")
+            self.progress.emit(18)
+            
             # Paso 3: Inicializar y cargar modelo de IA
             self.log_message.emit(f"🤖 Loading AI model: {self.model_name}...")
             self.log_message.emit("⏳ This may take a few minutes the first time...")
@@ -74,18 +103,29 @@ class WorkerThread(QThread):
             self.log_message.emit("✓ Model loaded successfully")
             self.progress.emit(25)
             
-            # Paso 4: Extraer frases clave
-            self.log_message.emit(f"🔑 Extracting {self.num_keyphrases} key phrases...")
-            keyphrases = ai_analyzer.extract_keyphrases(
-                manuscript_text,
-                self.prompts.get('keyphrases', ''),
-                self.num_keyphrases
-            )
+            # Paso 4: Extraer frases clave (combinar keywords + AI)
+            keyphrases = []
+            
+            # Usar keywords del manuscrito si existen
+            if manuscript_keywords:
+                keyphrases.extend(manuscript_keywords[:self.num_keyphrases])
+                self.log_message.emit(f"✓ Using {len(keyphrases)} author keywords")
+            
+            # Si faltan keyphrases, completar con IA
+            if len(keyphrases) < self.num_keyphrases:
+                remaining = self.num_keyphrases - len(keyphrases)
+                self.log_message.emit(f"🔑 Extracting {remaining} additional key phrases with AI...")
+                ai_keyphrases = ai_analyzer.extract_keyphrases(
+                    manuscript_text,
+                    self.prompts.get('keyphrases', ''),
+                    remaining
+                )
+                keyphrases.extend(ai_keyphrases)
             
             if not keyphrases:
                 raise ValueError("Could not extract key phrases from the manuscript")
             
-            self.log_message.emit(f"✓ Extracted key phrases:")
+            self.log_message.emit(f"✓ Final key phrases for PubMed search:")
             for kp in keyphrases:
                 self.log_message.emit(f"  • {kp}")
             self.progress.emit(35)
@@ -96,15 +136,39 @@ class WorkerThread(QThread):
                 # Aquí se podría emitir señal para confirmación
                 # Por ahora continuamos automáticamente
             
-            # Paso 5: Buscar en PubMed
-            self.log_message.emit("🔬 Searching PubMed database...")
-            pubmed_searcher = PubMedSearcher()
-            pubmed_data = pubmed_searcher.search_articles(keyphrases, self.num_articles)
+            # Paso 5: Buscar en PubMed o cargar artículos importados
+            if self.imported_articles_file:
+                self.log_message.emit("📄 Loading imported articles from file...")
+                try:
+                    with open(self.imported_articles_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    from src.article_importer import ArticleImporter
+                    articles = ArticleImporter.parse_citations(content)
+                    pubmed_data = ArticleImporter.convert_to_pubmed_format(articles, "imported_articles")
+                    
+                    total_articles = len(articles)
+                    self.log_message.emit(f"✓ Loaded {total_articles} imported article(s):")
+                    for article in articles[:5]:  # Show first 5
+                        self.log_message.emit(f"  • {article.get('title', 'Unknown')} ({article.get('year', 'N/A')})")
+                    if total_articles > 5:
+                        self.log_message.emit(f"  ... and {total_articles - 5} more")
+                    
+                except Exception as e:
+                    self.log_message.emit(f"⚠ Error loading imported articles: {str(e)}")
+                    self.log_message.emit("⚠ Falling back to PubMed search...")
+                    pubmed_searcher = PubMedSearcher()
+                    pubmed_data = pubmed_searcher.search_articles(keyphrases, self.num_articles)
+            else:
+                self.log_message.emit("🔬 Searching PubMed database...")
+                pubmed_searcher = PubMedSearcher()
+                pubmed_data = pubmed_searcher.search_articles(keyphrases, self.num_articles)
             
             if not pubmed_data:
-                self.log_message.emit("⚠ Warning: No articles found in PubMed")
+                self.log_message.emit("⚠ Warning: No articles found")
                 self.log_message.emit("⚠ The evaluation will proceed with limited reference data")
-            else:
+            elif not self.imported_articles_file:
+                # Only log PubMed search results if we didn't import
                 total_articles = sum(len(articles) for articles in pubmed_data.values())
                 self.log_message.emit(f"✓ Found {total_articles} articles:")
                 for kp, articles in pubmed_data.items():
@@ -134,14 +198,48 @@ class WorkerThread(QThread):
             self.log_message.emit(f"  • Suggestions: {len(evaluation.get('suggestions', []))}")
             self.progress.emit(75)
             
+            # Paso 6.5: Permitir edición manual si está habilitado
+            if self.allow_edit_reports:
+                self.log_message.emit("⏸ Requesting manual verification of reports...")
+                
+                # Reset edit state
+                self.edit_mutex.lock()
+                self.edit_ready = False
+                self.edited_reports = None
+                self.edit_mutex.unlock()
+                
+                # Emitir señal para edición en el hilo principal
+                self.request_report_edit.emit({'evaluation': evaluation})
+                
+                # Esperar a que el usuario edite usando wait condition (más eficiente que polling)
+                self.edit_mutex.lock()
+                if not self.edit_ready:
+                    # Esperar con timeout (en milisegundos)
+                    self.edit_condition.wait(self.edit_mutex, MAX_EDIT_TIMEOUT_SECONDS * 1000)
+                self.edit_mutex.unlock()
+                
+                if self.edited_reports is not None:
+                    evaluation = self.edited_reports
+                    self.log_message.emit("✓ Using edited evaluation")
+                else:
+                    self.log_message.emit("⚠ Edit timeout, using original evaluation")
+            
             # Paso 7: Generar informes
             self.log_message.emit("📝 Generating reports...")
+            
+            # Determinar ruta de salida
+            output_path = self.file_path
+            if self.output_directory:
+                # Usar directorio personalizado con el nombre base del archivo
+                base_name = os.path.basename(self.file_path)
+                output_path = os.path.join(self.output_directory, base_name)
+                self.log_message.emit(f"✓ Using custom output directory: {self.output_directory}")
             
             report_generator = ReportGenerator(self.output_format)
             
             # Informe para autor
             author_report = report_generator.generate_author_report(
-                self.file_path,
+                output_path,
                 evaluation
             )
             self.log_message.emit(f"✓ Author report: {author_report}")
@@ -150,7 +248,7 @@ class WorkerThread(QThread):
             
             # Informe para auditoría
             auditor_report = report_generator.generate_auditor_report(
-                self.file_path,
+                output_path,
                 evaluation,
                 pubmed_data,
                 keyphrases,
@@ -182,6 +280,13 @@ class WorkerThread(QThread):
             error_msg = f"Error: {str(e)}\n{traceback.format_exc()}"
             self.log_message.emit(f"❌ {error_msg}")
             self.error.emit(error_msg)
+    
+    def notify_edit_complete(self):
+        """Notifica que la edición de reportes ha sido completada"""
+        self.edit_mutex.lock()
+        self.edit_ready = True
+        self.edit_condition.wakeAll()
+        self.edit_mutex.unlock()
     
     def stop(self):
         """Detiene el procesamiento"""

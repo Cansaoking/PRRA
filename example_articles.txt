@@ -1,0 +1,17 @@
+# Example Articles File for PRRA Import
+
+# This file demonstrates the format for importing pre-selected articles.
+# Each article should have a citation line followed by its abstract.
+# Separate articles with blank lines.
+
+Ababei, D. C., et al. (2023). "Therapeutic Implications of Renin-Angiotensin System Modulators in Alzheimer's Dementia." Pharmaceutics 15(9).
+	The Renin-Angiotensin System (RAS) has attracted considerable interest beyond its traditional cardiovascular role due to emerging data indicating its potential involvement in neurodegenerative diseases, including Alzheimer's dementia (AD). This review investigates the therapeutic implications of RAS modulators, specifically focusing on angiotensin-converting enzyme inhibitors (ACEIs), angiotensin receptor blockers (ARBs), and renin inhibitors in AD. ACEIs, commonly used for hypertension, show promise in AD by reducing angiotensin (Ang) II levels. This reduction is significant as Ang II contributes to neuroinflammation, oxidative stress, and beta-amyloid (Abeta) accumulation, all implicated in AD pathogenesis.
+
+Smith, J., & Johnson, M. (2022). "CGRP Receptor Mechanisms in Migraine Pathophysiology." Neurology Today 18(3).
+	Calcitonin gene-related peptide (CGRP) plays a central role in migraine pathophysiology. This article reviews the mechanisms by which CGRP receptors mediate migraine symptoms and discusses therapeutic strategies targeting these receptors. Clinical trials have demonstrated the efficacy of CGRP receptor antagonists in both acute and preventive migraine treatment.
+
+# Format requirements:
+# - Author(s) (Year). "Title." Journal Volume(Issue).
+# - Followed by abstract text (can span multiple lines)
+# - Blank line between articles
+# - You can include as many articles as needed
