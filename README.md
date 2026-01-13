@@ -7,14 +7,17 @@ Sistema automatizado de revisión por pares para manuscritos científicos utiliz
 - 📄 **Múltiples formatos de entrada**: PDF, DOCX, DOC, RTF, TXT
 - 🤖 **Análisis con IA local**: Utiliza modelos de HuggingFace (Qwen, DeepSeek, Phi-3, Llama)
 - 🔬 **Búsqueda en PubMed**: Búsqueda automática de artículos de referencia
+- 📥 **Importar artículos**: Carga artículos pre-seleccionados desde archivo de texto
 - 🔑 **Extracción inteligente de keywords**: Usa keywords del autor + IA con enfoque médico/científico
 - 📊 **Evaluación completa**: Calidad del inglés, estructura, metodología, actualización de contenidos
 - 📝 **Doble informe**: Informe para el autor y informe detallado para auditoría
 - ✏️ **Edición de informes**: Revisión y edición manual opcional antes de generar archivos finales
 - 📁 **Directorio de salida personalizable**: Elige dónde guardar los informes generados
+- 🗑️ **Limpieza automática de cache**: Elimina modelos y archivos temporales al cerrar
 - 💬 **Prompts personalizables**: Sistema de prompts editables y guardables en JSON
 - 🎨 **Interfaz profesional**: PyQt5 con diseño modular y progreso en tiempo real
 - 🚀 **Soporte GPU**: Detección automática de CUDA para aceleración
+- ⚡ **Inicio instantáneo**: Lazy imports para carga rápida de la aplicación
 
 ## Arquitectura Modular
 
@@ -185,6 +188,34 @@ La aplicación implementa búsqueda progresiva:
 - meta-llama/Llama-2-7b-chat-hf
 
 **Nota**: La primera vez que se usa un modelo, se descarga automáticamente (puede tardar varios minutos).
+
+## Gestión de Cache
+
+La aplicación descarga modelos de IA que pueden ocupar varios GB de espacio. Para gestionar este cache:
+
+### Limpieza Automática al Cerrar
+1. En la pestaña "Configuration", marca "Clean cache on exit"
+2. Al cerrar la aplicación, se te preguntará si deseas limpiar el cache
+3. Se eliminarán:
+   - Modelos de IA descargados (HuggingFace, Torch)
+   - Archivos temporales de Python (`__pycache__`)
+   - Otros archivos de cache
+
+### Limpieza Manual
+Puedes limpiar el cache en cualquier momento sin cerrar la aplicación:
+
+1. En la pestaña "Configuration", click en "🗑️ Clean Cache Now..."
+2. Revisa el tamaño actual del cache
+3. Confirma la limpieza
+4. Los modelos se re-descargarán cuando se necesiten
+
+### Ver Información del Cache
+- Botón "📊 View Cache Info" muestra:
+  - Tamaño total del cache
+  - Cache de modelos de IA (HuggingFace, Torch)
+  - Archivos temporales de Python (__pycache__)
+
+**Importante**: Limpiar el cache eliminará los modelos descargados. La próxima vez que uses un modelo, se descargará nuevamente.
 
 ## Configuración
 

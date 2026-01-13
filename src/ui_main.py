@@ -277,6 +277,26 @@ class MainWindow(QMainWindow):
         self.edit_reports_checkbox.setChecked(False)
         options_layout.addWidget(self.edit_reports_checkbox)
         
+        self.clean_cache_checkbox = QCheckBox("Clean cache on exit (models, temporary files)")
+        self.clean_cache_checkbox.setToolTip("Automatically remove downloaded models and temporary files when closing the application")
+        self.clean_cache_checkbox.setChecked(False)
+        options_layout.addWidget(self.clean_cache_checkbox)
+        
+        # Botón de limpieza manual de cache
+        cache_button_layout = QHBoxLayout()
+        cache_button_layout.addSpacing(20)
+        btn_clean_cache = QPushButton("🗑️ Clean Cache Now...")
+        btn_clean_cache.setToolTip("Manually clean cache and temporary files without closing the application")
+        btn_clean_cache.clicked.connect(self.clean_cache_now)
+        cache_button_layout.addWidget(btn_clean_cache)
+        
+        btn_view_cache = QPushButton("📊 View Cache Info")
+        btn_view_cache.setToolTip("View information about current cache usage")
+        btn_view_cache.clicked.connect(self.view_cache_info)
+        cache_button_layout.addWidget(btn_view_cache)
+        cache_button_layout.addStretch()
+        options_layout.addLayout(cache_button_layout)
+        
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
         
@@ -467,6 +487,112 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", f"Could not read file: {str(e)}")
                 self.imported_articles_file = None
     
+    def view_cache_info(self):
+        """Muestra información sobre el cache actual"""
+        try:
+            from src.cache_manager import CacheManager
+            from pathlib import Path
+            
+            base_path = Path(__file__).parent.parent
+            info = CacheManager.get_cache_info(base_path)
+            
+            # Construir mensaje con información
+            msg = f"Total Cache Size: {info['total_size_str']}\n\n"
+            
+            if info['model_cache']:
+                msg += "AI Models Cache:\n"
+                for cache_item in info['model_cache']:
+                    msg += f"  • {cache_item['path']}\n    Size: {cache_item['size_str']}\n"
+                msg += "\n"
+            
+            if info['pycache']:
+                total_pycache = sum(item['size'] for item in info['pycache'])
+                msg += f"Python Cache (__pycache__):\n"
+                msg += f"  • {len(info['pycache'])} directories\n"
+                msg += f"  • Total size: {CacheManager.format_size(total_pycache)}\n"
+            
+            if info['total_size'] == 0:
+                msg = "No cache files found."
+            
+            QMessageBox.information(self, "Cache Information", msg)
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not retrieve cache info: {str(e)}")
+    
+    def clean_cache_now(self):
+        """Limpia el cache manualmente"""
+        try:
+            from src.cache_manager import CacheManager
+            from pathlib import Path
+            
+            # Obtener información primero
+            base_path = Path(__file__).parent.parent
+            info = CacheManager.get_cache_info(base_path)
+            
+            if info['total_size'] == 0:
+                QMessageBox.information(
+                    self,
+                    "Cache Clean",
+                    "No cache files found to clean."
+                )
+                return
+            
+            # Confirmar limpieza
+            reply = QMessageBox.question(
+                self,
+                'Confirm Cache Cleaning',
+                f'This will remove all cache and temporary files.\n\n'
+                f'Current cache size: {info["total_size_str"]}\n\n'
+                f'Items to clean:\n'
+                f'- AI models (HuggingFace/Torch): {len(info["model_cache"])} directories\n'
+                f'- Python cache files: {len(info["pycache"])} directories\n\n'
+                f'Warning: Downloaded AI models will need to be re-downloaded.\n\n'
+                f'Continue?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                # Mostrar progreso
+                progress = QMessageBox(self)
+                progress.setWindowTitle('Cleaning Cache')
+                progress.setText('Cleaning cache and temporary files...')
+                progress.setStandardButtons(QMessageBox.NoButton)
+                progress.show()
+                QApplication.processEvents()
+                
+                # Limpiar cache
+                results = CacheManager.clean_cache(
+                    clean_models=True,
+                    clean_pycache=True,
+                    base_path=base_path
+                )
+                
+                progress.close()
+                
+                # Mostrar resultados
+                if results['success'] or len(results['cleaned']) > 0:
+                    size_freed = CacheManager.format_size(results['size_freed'])
+                    msg = f'Successfully cleaned cache!\n\n'
+                    msg += f'Space freed: {size_freed}\n'
+                    msg += f'Items cleaned: {len(results["cleaned"])}'
+                    
+                    if results['errors']:
+                        msg += f'\n\nWarnings:\n' + '\n'.join(results['errors'])
+                    
+                    self.log_message(f"✓ Cache cleaned: {size_freed} freed")
+                    QMessageBox.information(self, 'Cache Cleaned', msg)
+                else:
+                    error_msg = '\n'.join(results['errors'])
+                    QMessageBox.warning(
+                        self,
+                        'Cleanup Failed',
+                        f'Could not clean cache:\n\n{error_msg}'
+                    )
+                    
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Error cleaning cache: {str(e)}")
+    
     def save_prompts(self):
         """Guarda prompts a archivo JSON"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -638,6 +764,92 @@ class MainWindow(QMainWindow):
         # Scroll al final
         scrollbar = self.log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+    
+    def closeEvent(self, event):
+        """Maneja el evento de cierre de la aplicación"""
+        # Verificar si hay un worker en ejecución
+        if self.worker and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                'Confirm Exit',
+                'A review is currently in progress. Are you sure you want to exit?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.No:
+                event.ignore()
+                return
+            else:
+                # Detener el worker
+                self.worker.stop()
+                self.worker.wait(2000)  # Esperar máximo 2 segundos
+        
+        # Limpiar cache si está habilitado
+        if self.clean_cache_checkbox.isChecked():
+            reply = QMessageBox.question(
+                self,
+                'Clean Cache',
+                'Do you want to clean all cache and temporary files?\n\n'
+                'This will remove:\n'
+                '- Downloaded AI models (will need to re-download next time)\n'
+                '- Python cache files (__pycache__)\n'
+                '- Torch/HuggingFace cache\n\n'
+                'This may free up several GB of disk space.',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                try:
+                    from src.cache_manager import CacheManager
+                    from pathlib import Path
+                    
+                    # Mostrar progreso
+                    progress = QMessageBox(self)
+                    progress.setWindowTitle('Cleaning Cache')
+                    progress.setText('Cleaning cache and temporary files...')
+                    progress.setStandardButtons(QMessageBox.NoButton)
+                    progress.show()
+                    QApplication.processEvents()
+                    
+                    # Limpiar cache
+                    base_path = Path(__file__).parent.parent
+                    results = CacheManager.clean_cache(
+                        clean_models=True,
+                        clean_pycache=True,
+                        base_path=base_path
+                    )
+                    
+                    progress.close()
+                    
+                    # Mostrar resultados
+                    if results['success']:
+                        size_freed = CacheManager.format_size(results['size_freed'])
+                        QMessageBox.information(
+                            self,
+                            'Cache Cleaned',
+                            f'Successfully cleaned cache!\n\n'
+                            f'Space freed: {size_freed}\n'
+                            f'Items cleaned: {len(results["cleaned"])}'
+                        )
+                    else:
+                        error_msg = '\n'.join(results['errors'])
+                        QMessageBox.warning(
+                            self,
+                            'Partial Cleanup',
+                            f'Cache cleaning completed with some errors:\n\n{error_msg}'
+                        )
+                        
+                except Exception as e:
+                    QMessageBox.warning(
+                        self,
+                        'Error',
+                        f'Error cleaning cache: {str(e)}'
+                    )
+        
+        # Aceptar el evento de cierre
+        event.accept()
 
 
 def main():
