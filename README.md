@@ -87,7 +87,7 @@ python main.py
 1. **Cargar manuscrito**: Abrir archivo PDF, DOCX, DOC, RTF o TXT
 2. **Configurar parámetros**:
    - Número de frases clave (3-10)
-   - Artículos a buscar en PubMed (5-50)
+   - Artículos a buscar en PubMed (5-50) O importar artículos pre-seleccionados
    - Modelo de IA a utilizar
    - Formato de salida (PDF o DOCX)
    - Directorio de salida personalizado (opcional)
@@ -98,6 +98,31 @@ python main.py
 6. **Revisar resultados**: Se generan dos informes:
    - `*_Author_Report.pdf/docx`: Para el autor del manuscrito
    - `*_Auditor_Report.pdf/docx`: Para auditoría interna
+
+### Importar artículos pre-seleccionados
+
+Si ya tienes artículos relevantes de PubMed u otras fuentes, puedes importarlos directamente:
+
+1. **Preparar archivo**: Crea un archivo de texto con tus artículos en el siguiente formato:
+   ```
+   Autor, X. et al. (Año). "Título del artículo." Revista Volumen(Número).
+       Abstract del artículo...
+   
+   Autor2, Y. et al. (Año). "Otro título." Otra Revista Vol(Num).
+       Otro abstract...
+   ```
+
+2. **Importar en la aplicación**:
+   - En la pestaña "Configuration", marca "Import pre-selected articles (skip PubMed search)"
+   - Click en "Load Articles File..." y selecciona tu archivo
+   - La aplicación parseará y usará estos artículos para el análisis
+
+3. **Ventajas**:
+   - Salta la búsqueda en PubMed si ya tienes los artículos
+   - Usa exactamente los artículos que consideras relevantes
+   - Más rápido cuando ya has hecho la investigación
+
+Ver `example_articles.txt` para un ejemplo completo del formato.
 
 ### Mejoras en extracción de keywords
 

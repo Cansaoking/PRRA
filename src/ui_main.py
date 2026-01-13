@@ -4,6 +4,7 @@ PRRA main graphical interface
 import sys
 import os
 import json
+import re
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QTextEdit, QComboBox, QCheckBox,
@@ -32,6 +33,7 @@ class MainWindow(QMainWindow):
         self.prompts = DEFAULT_PROMPTS.copy()
         self.worker = None
         self.output_directory = None  # Custom output directory
+        self.imported_articles_file = None  # Path to imported articles file
         
         self.init_ui()
     
@@ -187,6 +189,28 @@ class MainWindow(QMainWindow):
         art_layout.addWidget(self.num_articles_spin)
         art_layout.addStretch()
         pubmed_layout.addLayout(art_layout)
+        
+        # Opción para importar artículos
+        import_layout = QHBoxLayout()
+        self.import_articles_checkbox = QCheckBox("Import pre-selected articles (skip PubMed search)")
+        self.import_articles_checkbox.setToolTip("Load articles from a text file with citations and abstracts")
+        self.import_articles_checkbox.stateChanged.connect(self.on_import_articles_changed)
+        import_layout.addWidget(self.import_articles_checkbox)
+        pubmed_layout.addLayout(import_layout)
+        
+        self.import_file_label = QLabel("No file selected")
+        self.import_file_label.setStyleSheet("padding: 3px; background-color: #f0f0f0; border-radius: 3px; margin-left: 20px;")
+        self.import_file_label.setVisible(False)
+        pubmed_layout.addWidget(self.import_file_label)
+        
+        btn_import_layout = QHBoxLayout()
+        btn_import_layout.addSpacing(20)
+        self.btn_import_file = QPushButton("📄 Load Articles File...")
+        self.btn_import_file.clicked.connect(self.load_articles_file)
+        self.btn_import_file.setVisible(False)
+        btn_import_layout.addWidget(self.btn_import_file)
+        btn_import_layout.addStretch()
+        pubmed_layout.addLayout(btn_import_layout)
         
         pubmed_group.setLayout(pubmed_layout)
         layout.addWidget(pubmed_group)
@@ -382,6 +406,67 @@ class MainWindow(QMainWindow):
             self.output_directory = None
             self.output_dir_label.setText("Same as manuscript")
     
+    def on_import_articles_changed(self, state):
+        """Maneja el cambio en el checkbox de importación de artículos"""
+        is_checked = state == Qt.Checked
+        self.import_file_label.setVisible(is_checked)
+        self.btn_import_file.setVisible(is_checked)
+        
+        if not is_checked:
+            self.imported_articles_file = None
+            self.import_file_label.setText("No file selected")
+    
+    def load_articles_file(self):
+        """Carga un archivo con artículos pre-seleccionados"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Articles File",
+            "",
+            "Text Files (*.txt);;All Files (*.*)"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Validar que tiene contenido
+                if not content.strip():
+                    QMessageBox.warning(self, "Error", "The file is empty")
+                    return
+                
+                # Quick validation: check if it looks like citations
+                if not re.search(r'\(\d{4}\)', content):
+                    reply = QMessageBox.question(
+                        self,
+                        "Confirm",
+                        "The file doesn't appear to contain citations with years in (YYYY) format.\nDo you want to continue anyway?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        return
+                
+                self.imported_articles_file = file_path
+                self.import_file_label.setText(f"📄 {os.path.basename(file_path)}")
+                self.log_message(f"Loaded articles file: {file_path}")
+                
+                # Try to parse and show count
+                from src.article_importer import ArticleImporter
+                articles = ArticleImporter.parse_citations(content)
+                self.log_message(f"✓ Parsed {len(articles)} article(s) from file")
+                
+                if len(articles) == 0:
+                    QMessageBox.warning(
+                        self,
+                        "Warning",
+                        "No articles could be parsed from the file. Please check the format."
+                    )
+                
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not read file: {str(e)}")
+                self.imported_articles_file = None
+    
     def save_prompts(self):
         """Guarda prompts a archivo JSON"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -434,6 +519,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Please select a manuscript file first")
             return
         
+        # Validar que si está marcado importar, tenga un archivo
+        if self.import_articles_checkbox.isChecked() and not self.imported_articles_file:
+            QMessageBox.warning(self, "Error", "Please load an articles file or uncheck the import option")
+            return
+        
         # Validar prompts
         try:
             self.prompts = json.loads(self.prompt_editor.toPlainText())
@@ -464,7 +554,8 @@ class MainWindow(QMainWindow):
             manual_mode=self.manual_checkbox.isChecked(),
             output_format=self.output_combo.currentText(),
             output_directory=self.output_directory,
-            allow_edit_reports=self.edit_reports_checkbox.isChecked()
+            allow_edit_reports=self.edit_reports_checkbox.isChecked(),
+            imported_articles_file=self.imported_articles_file if self.import_articles_checkbox.isChecked() else None
         )
         
         # Conectar señales

@@ -36,7 +36,8 @@ class WorkerThread(QThread):
         manual_mode: bool,
         output_format: str,
         output_directory: Optional[str] = None,
-        allow_edit_reports: bool = False
+        allow_edit_reports: bool = False,
+        imported_articles_file: Optional[str] = None
     ):
         super().__init__()
         self.file_path = file_path
@@ -48,6 +49,7 @@ class WorkerThread(QThread):
         self.output_format = output_format
         self.output_directory = output_directory
         self.allow_edit_reports = allow_edit_reports
+        self.imported_articles_file = imported_articles_file
         
         # Estado
         self.should_continue = True
@@ -134,15 +136,39 @@ class WorkerThread(QThread):
                 # Aquí se podría emitir señal para confirmación
                 # Por ahora continuamos automáticamente
             
-            # Paso 5: Buscar en PubMed
-            self.log_message.emit("🔬 Searching PubMed database...")
-            pubmed_searcher = PubMedSearcher()
-            pubmed_data = pubmed_searcher.search_articles(keyphrases, self.num_articles)
+            # Paso 5: Buscar en PubMed o cargar artículos importados
+            if self.imported_articles_file:
+                self.log_message.emit("📄 Loading imported articles from file...")
+                try:
+                    with open(self.imported_articles_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    from src.article_importer import ArticleImporter
+                    articles = ArticleImporter.parse_citations(content)
+                    pubmed_data = ArticleImporter.convert_to_pubmed_format(articles, "imported_articles")
+                    
+                    total_articles = len(articles)
+                    self.log_message.emit(f"✓ Loaded {total_articles} imported article(s):")
+                    for article in articles[:5]:  # Show first 5
+                        self.log_message.emit(f"  • {article.get('title', 'Unknown')} ({article.get('year', 'N/A')})")
+                    if total_articles > 5:
+                        self.log_message.emit(f"  ... and {total_articles - 5} more")
+                    
+                except Exception as e:
+                    self.log_message.emit(f"⚠ Error loading imported articles: {str(e)}")
+                    self.log_message.emit("⚠ Falling back to PubMed search...")
+                    pubmed_searcher = PubMedSearcher()
+                    pubmed_data = pubmed_searcher.search_articles(keyphrases, self.num_articles)
+            else:
+                self.log_message.emit("🔬 Searching PubMed database...")
+                pubmed_searcher = PubMedSearcher()
+                pubmed_data = pubmed_searcher.search_articles(keyphrases, self.num_articles)
             
             if not pubmed_data:
-                self.log_message.emit("⚠ Warning: No articles found in PubMed")
+                self.log_message.emit("⚠ Warning: No articles found")
                 self.log_message.emit("⚠ The evaluation will proceed with limited reference data")
-            else:
+            elif not self.imported_articles_file:
+                # Only log PubMed search results if we didn't import
                 total_articles = sum(len(articles) for articles in pubmed_data.values())
                 self.log_message.emit(f"✓ Found {total_articles} articles:")
                 for kp, articles in pubmed_data.items():
