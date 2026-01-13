@@ -489,7 +489,7 @@ class MainWindow(QMainWindow):
         dialog = ReportEditorDialog(data['evaluation'], self)
         result = dialog.exec_()
         
-        if result == QMessageBox.Accepted:
+        if result == ReportEditorDialog.Accepted:
             if dialog.was_modified():
                 self.log_message("✓ Reports modified by user")
             else:

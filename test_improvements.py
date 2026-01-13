@@ -10,40 +10,30 @@ from typing import List
 # Add root directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-def extract_keywords(text: str) -> List[str]:
+
+def extract_keywords_standalone(text: str) -> List[str]:
     """
-    Extrae palabras clave (keywords) del manuscrito si están presentes
-    
-    Args:
-        text: Texto completo del manuscrito
-        
-    Returns:
-        Lista de keywords extraídas del manuscrito, vacía si no se encuentran
+    Standalone version of extract_keywords for testing without dependencies
+    (Matches implementation in src/document_processor.py)
     """
     keywords = []
     
-    # Patrones para encontrar secciones de keywords en diferentes formatos
     patterns = [
-        r'(?i)keywords?\s*[:;]\s*([^\n]+)',  # Keywords: palabra1, palabra2
-        r'(?i)key\s+words?\s*[:;]\s*([^\n]+)',  # Key words: palabra1, palabra2
-        r'(?i)index\s+terms?\s*[:;]\s*([^\n]+)',  # Index terms: palabra1, palabra2
-        r'(?i)palabras?\s+clave\s*[:;]\s*([^\n]+)',  # Palabras clave: (Spanish)
+        r'(?i)keywords?\s*[:;]\s*([^\n]+)',
+        r'(?i)key\s+words?\s*[:;]\s*([^\n]+)',
+        r'(?i)index\s+terms?\s*[:;]\s*([^\n]+)',
+        r'(?i)palabras?\s+clave\s*[:;]\s*([^\n]+)',
     ]
     
     for pattern in patterns:
         matches = re.findall(pattern, text)
         if matches:
-            # Tomar el primer match
             keywords_text = matches[0].strip()
-            # Dividir por delimitadores comunes
             keywords = re.split(r'[;,•·]+', keywords_text)
             keywords = [kw.strip() for kw in keywords if kw.strip()]
             break
     
-    # Filtrar keywords vacías o muy cortas
     keywords = [kw for kw in keywords if len(kw) > 2]
-    
-    # Limitar a 10 keywords máximo (lo más común)
     if len(keywords) > 10:
         keywords = keywords[:10]
     
@@ -55,6 +45,9 @@ def test_keyword_extraction():
     print("\n" + "="*60)
     print("Testing Keyword Extraction")
     print("="*60)
+    
+    # Use standalone function for testing
+    extract_keywords = extract_keywords_standalone
     
     # Test 1: CGRP receptors (the issue topic)
     test1 = """

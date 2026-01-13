@@ -11,6 +11,9 @@ from src.ai_analyzer import AIAnalyzer
 from src.pubmed_searcher import PubMedSearcher
 from src.report_generator import ReportGenerator
 
+# Constants
+MAX_EDIT_TIMEOUT_SECONDS = 600  # 10 minutes maximum wait for user editing
+
 
 class WorkerThread(QThread):
     """Thread de trabajo para procesamiento asíncrono"""
@@ -171,11 +174,10 @@ class WorkerThread(QThread):
                 self.request_report_edit.emit({'evaluation': evaluation})
                 
                 # Esperar a que el usuario edite (con timeout)
-                max_wait = 600  # 10 minutos máximo
                 wait_interval = 0.5
                 elapsed = 0
                 
-                while self.edited_reports is None and elapsed < max_wait:
+                while self.edited_reports is None and elapsed < MAX_EDIT_TIMEOUT_SECONDS:
                     self.msleep(int(wait_interval * 1000))
                     elapsed += wait_interval
                 

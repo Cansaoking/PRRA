@@ -9,6 +9,9 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from typing import Dict, List
 
+# Constants
+BULLET_AND_NUMBER_CHARS = '•-*0123456789.) '
+
 
 class ReportEditorDialog(QDialog):
     """Dialog para editar informes antes de guardarlos"""
@@ -121,7 +124,7 @@ class ReportEditorDialog(QDialog):
             for line in lines:
                 line = line.strip()
                 # Remover bullets y numeración
-                line = line.lstrip('•-*0123456789.) ')
+                line = line.lstrip(BULLET_AND_NUMBER_CHARS)
                 if line:
                     points.append(line)
             
