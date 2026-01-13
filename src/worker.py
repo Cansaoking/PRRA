@@ -175,6 +175,13 @@ class WorkerThread(QThread):
             # Paso 6.5: Permitir edición manual si está habilitado
             if self.allow_edit_reports:
                 self.log_message.emit("⏸ Requesting manual verification of reports...")
+                
+                # Reset edit state
+                self.edit_mutex.lock()
+                self.edit_ready = False
+                self.edited_reports = None
+                self.edit_mutex.unlock()
+                
                 # Emitir señal para edición en el hilo principal
                 self.request_report_edit.emit({'evaluation': evaluation})
                 

@@ -10,7 +10,7 @@ from PyQt5.QtGui import QFont
 from typing import Dict, List
 
 # Constants
-BULLET_AND_NUMBER_CHARS = '•-*0123456789.) '
+BULLET_AND_NUMBER_CHARS = '•-*) '  # Characters to strip for bullet formatting (excluding digits to preserve content)
 
 
 class ReportEditorDialog(QDialog):
@@ -123,8 +123,13 @@ class ReportEditorDialog(QDialog):
             points = []
             for line in lines:
                 line = line.strip()
-                # Remover bullets y numeración
-                line = line.lstrip(BULLET_AND_NUMBER_CHARS)
+                
+                # Remover bullets y numeración al inicio de línea usando regex
+                # Patrón: números opcionales seguidos de punto/paréntesis, espacios, y bullets
+                import re
+                line = re.sub(r'^[\d]+[.)]\s*', '', line)  # Remove "1. " or "1) "
+                line = line.lstrip(BULLET_AND_NUMBER_CHARS)  # Remove bullets
+                
                 if line:
                     points.append(line)
             
