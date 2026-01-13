@@ -2,7 +2,8 @@
 Módulo para extracción de texto de diferentes formatos de documento
 """
 import os
-from typing import Optional
+import re
+from typing import Optional, List
 from docx import Document
 from PyPDF2 import PdfReader
 from striprtf.striprtf import rtf_to_text
@@ -125,3 +126,43 @@ class DocumentProcessor:
         if len(text) <= max_chars:
             return text
         return text[:max_chars] + "..."
+    
+    @staticmethod
+    def extract_keywords(text: str) -> List[str]:
+        """
+        Extrae palabras clave (keywords) del manuscrito si están presentes
+        
+        Args:
+            text: Texto completo del manuscrito
+            
+        Returns:
+            Lista de keywords extraídas del manuscrito, vacía si no se encuentran
+        """
+        keywords = []
+        
+        # Patrones para encontrar secciones de keywords en diferentes formatos
+        patterns = [
+            r'(?i)keywords?\s*[:;]\s*([^\n]+)',  # Keywords: palabra1, palabra2
+            r'(?i)key\s+words?\s*[:;]\s*([^\n]+)',  # Key words: palabra1, palabra2
+            r'(?i)index\s+terms?\s*[:;]\s*([^\n]+)',  # Index terms: palabra1, palabra2
+            r'(?i)palabras?\s+clave\s*[:;]\s*([^\n]+)',  # Palabras clave: (Spanish)
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, text)
+            if matches:
+                # Tomar el primer match
+                keywords_text = matches[0].strip()
+                # Dividir por delimitadores comunes
+                keywords = re.split(r'[;,•·]+', keywords_text)
+                keywords = [kw.strip() for kw in keywords if kw.strip()]
+                break
+        
+        # Filtrar keywords vacías o muy cortas
+        keywords = [kw for kw in keywords if len(kw) > 2]
+        
+        # Limitar a 10 keywords máximo (lo más común)
+        if len(keywords) > 10:
+            keywords = keywords[:10]
+        
+        return keywords

@@ -20,6 +20,7 @@ from src.config import (
 )
 from src.document_processor import DocumentProcessor
 from src.worker import WorkerThread
+from src.report_editor_dialog import ReportEditorDialog
 
 
 class MainWindow(QMainWindow):
@@ -30,6 +31,7 @@ class MainWindow(QMainWindow):
         self.file_path = None
         self.prompts = DEFAULT_PROMPTS.copy()
         self.worker = None
+        self.output_directory = None  # Custom output directory
         
         self.init_ui()
     
@@ -223,6 +225,18 @@ class MainWindow(QMainWindow):
         format_layout.addStretch()
         output_layout.addLayout(format_layout)
         
+        # Output directory selection
+        dir_layout = QHBoxLayout()
+        dir_layout.addWidget(QLabel("Output directory:"))
+        self.output_dir_label = QLabel("Same as manuscript")
+        self.output_dir_label.setStyleSheet("padding: 3px; background-color: #f0f0f0; border-radius: 3px;")
+        dir_layout.addWidget(self.output_dir_label)
+        
+        btn_choose_dir = QPushButton("📁 Choose...")
+        btn_choose_dir.clicked.connect(self.choose_output_directory)
+        dir_layout.addWidget(btn_choose_dir)
+        output_layout.addLayout(dir_layout)
+        
         output_group.setLayout(output_layout)
         layout.addWidget(output_group)
         
@@ -233,6 +247,11 @@ class MainWindow(QMainWindow):
         self.manual_checkbox = QCheckBox("Manual mode (confirm intermediate steps)")
         self.manual_checkbox.setToolTip("Enable to review and confirm each processing step")
         options_layout.addWidget(self.manual_checkbox)
+        
+        self.edit_reports_checkbox = QCheckBox("Allow manual editing of reports before saving")
+        self.edit_reports_checkbox.setToolTip("Enable to review and edit reports before they are saved")
+        self.edit_reports_checkbox.setChecked(False)
+        options_layout.addWidget(self.edit_reports_checkbox)
         
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
@@ -346,6 +365,23 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", f"Could not read file: {str(e)}")
                 self.file_path = None
     
+    def choose_output_directory(self):
+        """Permite al usuario elegir directorio de salida personalizado"""
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Choose Output Directory",
+            os.path.dirname(self.file_path) if self.file_path else ""
+        )
+        
+        if directory:
+            self.output_directory = directory
+            self.output_dir_label.setText(f"📁 {os.path.basename(directory)}")
+            self.log_message(f"Output directory set to: {directory}")
+        else:
+            # User cancelled, reset to default
+            self.output_directory = None
+            self.output_dir_label.setText("Same as manuscript")
+    
     def save_prompts(self):
         """Guarda prompts a archivo JSON"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -426,7 +462,9 @@ class MainWindow(QMainWindow):
             model_name=self.model_combo.currentText(),
             prompts=self.prompts,
             manual_mode=self.manual_checkbox.isChecked(),
-            output_format=self.output_combo.currentText()
+            output_format=self.output_combo.currentText(),
+            output_directory=self.output_directory,
+            allow_edit_reports=self.edit_reports_checkbox.isChecked()
         )
         
         # Conectar señales
@@ -435,12 +473,33 @@ class MainWindow(QMainWindow):
         self.worker.result.connect(self.on_review_complete)
         self.worker.error.connect(self.on_review_error)
         self.worker.finished.connect(self.on_worker_finished)
+        self.worker.request_report_edit.connect(self.on_report_edit_request)
         
         # Iniciar
         self.worker.start()
         self.log_message("=" * 60)
         self.log_message("Starting automated peer review process...")
         self.log_message("=" * 60)
+    
+    def on_report_edit_request(self, data: dict):
+        """Maneja la solicitud de edición de reportes"""
+        self.log_message("📝 Opening report editor for manual verification...")
+        
+        # Mostrar diálogo de edición
+        dialog = ReportEditorDialog(data['evaluation'], self)
+        result = dialog.exec_()
+        
+        if result == QMessageBox.Accepted:
+            if dialog.was_modified():
+                self.log_message("✓ Reports modified by user")
+            else:
+                self.log_message("✓ Reports confirmed without changes")
+            
+            # Pasar la evaluación editada de vuelta al worker
+            self.worker.edited_reports = dialog.get_evaluation()
+        else:
+            self.log_message("⚠ Report editing cancelled, using original content")
+            self.worker.edited_reports = data['evaluation']
     
     def stop_review(self):
         """Detiene el proceso de revisión"""

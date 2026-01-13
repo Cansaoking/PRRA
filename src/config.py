@@ -30,13 +30,15 @@ DEFAULT_OUTPUT_FORMAT = "pdf"
 
 # Prompts por defecto
 DEFAULT_PROMPTS = {
-    'keyphrases': """Extract {num} key phrases (2-4 words each) from the following scientific manuscript text.
-Focus on the main topics, methods, and findings. Return only the phrases, one per line.
+    'keyphrases': """Extract {num} key medical/scientific phrases (2-4 words each) from the following scientific manuscript text.
+Focus ONLY on the MAIN medical topics, diseases, biological processes, specific receptors, proteins, or therapeutic targets mentioned in the text.
+DO NOT include general methodology terms or common research terms.
+Return only specific medical/scientific concepts, one per line.
 
 Text:
 {text}
 
-Key phrases:""",
+Key medical/scientific phrases:""",
     
     'analysis': """You are an expert scientific peer reviewer. Analyze the following manuscript and provide a detailed evaluation.
 

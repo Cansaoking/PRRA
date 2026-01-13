@@ -4,6 +4,7 @@ Worker thread for background processing
 from PyQt5.QtCore import QThread, pyqtSignal
 from typing import Dict, Optional
 import traceback
+import os
 
 from src.document_processor import DocumentProcessor
 from src.ai_analyzer import AIAnalyzer
@@ -20,6 +21,7 @@ class WorkerThread(QThread):
     result = pyqtSignal(dict)
     error = pyqtSignal(str)
     request_confirmation = pyqtSignal(str, dict)  # Para modo manual
+    request_report_edit = pyqtSignal(dict)  # Para edición de reportes
     
     def __init__(
         self,
@@ -29,7 +31,9 @@ class WorkerThread(QThread):
         model_name: str,
         prompts: Dict[str, str],
         manual_mode: bool,
-        output_format: str
+        output_format: str,
+        output_directory: Optional[str] = None,
+        allow_edit_reports: bool = False
     ):
         super().__init__()
         self.file_path = file_path
@@ -39,10 +43,13 @@ class WorkerThread(QThread):
         self.prompts = prompts
         self.manual_mode = manual_mode
         self.output_format = output_format
+        self.output_directory = output_directory
+        self.allow_edit_reports = allow_edit_reports
         
         # Estado
         self.should_continue = True
         self.confirmation_data = None
+        self.edited_reports = None  # Para almacenar reportes editados
     
     def run(self):
         """Ejecuta el proceso completo de revisión"""
@@ -66,6 +73,18 @@ class WorkerThread(QThread):
             self.log_message.emit(f"✓ Article type: {article_type}")
             self.progress.emit(15)
             
+            # Paso 2b: Extraer keywords del manuscrito (si existen)
+            self.log_message.emit("🔍 Looking for author-provided keywords...")
+            manuscript_keywords = doc_processor.extract_keywords(manuscript_text)
+            
+            if manuscript_keywords:
+                self.log_message.emit(f"✓ Found {len(manuscript_keywords)} keywords in manuscript:")
+                for kw in manuscript_keywords:
+                    self.log_message.emit(f"  • {kw}")
+            else:
+                self.log_message.emit("⚠ No keywords found in manuscript, will use AI extraction")
+            self.progress.emit(18)
+            
             # Paso 3: Inicializar y cargar modelo de IA
             self.log_message.emit(f"🤖 Loading AI model: {self.model_name}...")
             self.log_message.emit("⏳ This may take a few minutes the first time...")
@@ -74,18 +93,29 @@ class WorkerThread(QThread):
             self.log_message.emit("✓ Model loaded successfully")
             self.progress.emit(25)
             
-            # Paso 4: Extraer frases clave
-            self.log_message.emit(f"🔑 Extracting {self.num_keyphrases} key phrases...")
-            keyphrases = ai_analyzer.extract_keyphrases(
-                manuscript_text,
-                self.prompts.get('keyphrases', ''),
-                self.num_keyphrases
-            )
+            # Paso 4: Extraer frases clave (combinar keywords + AI)
+            keyphrases = []
+            
+            # Usar keywords del manuscrito si existen
+            if manuscript_keywords:
+                keyphrases.extend(manuscript_keywords[:self.num_keyphrases])
+                self.log_message.emit(f"✓ Using {len(keyphrases)} author keywords")
+            
+            # Si faltan keyphrases, completar con IA
+            if len(keyphrases) < self.num_keyphrases:
+                remaining = self.num_keyphrases - len(keyphrases)
+                self.log_message.emit(f"🔑 Extracting {remaining} additional key phrases with AI...")
+                ai_keyphrases = ai_analyzer.extract_keyphrases(
+                    manuscript_text,
+                    self.prompts.get('keyphrases', ''),
+                    remaining
+                )
+                keyphrases.extend(ai_keyphrases)
             
             if not keyphrases:
                 raise ValueError("Could not extract key phrases from the manuscript")
             
-            self.log_message.emit(f"✓ Extracted key phrases:")
+            self.log_message.emit(f"✓ Final key phrases for PubMed search:")
             for kp in keyphrases:
                 self.log_message.emit(f"  • {kp}")
             self.progress.emit(35)
@@ -134,14 +164,43 @@ class WorkerThread(QThread):
             self.log_message.emit(f"  • Suggestions: {len(evaluation.get('suggestions', []))}")
             self.progress.emit(75)
             
+            # Paso 6.5: Permitir edición manual si está habilitado
+            if self.allow_edit_reports:
+                self.log_message.emit("⏸ Requesting manual verification of reports...")
+                # Emitir señal para edición en el hilo principal
+                self.request_report_edit.emit({'evaluation': evaluation})
+                
+                # Esperar a que el usuario edite (con timeout)
+                max_wait = 600  # 10 minutos máximo
+                wait_interval = 0.5
+                elapsed = 0
+                
+                while self.edited_reports is None and elapsed < max_wait:
+                    self.msleep(int(wait_interval * 1000))
+                    elapsed += wait_interval
+                
+                if self.edited_reports is not None:
+                    evaluation = self.edited_reports
+                    self.log_message.emit("✓ Using edited evaluation")
+                else:
+                    self.log_message.emit("⚠ Edit timeout, using original evaluation")
+            
             # Paso 7: Generar informes
             self.log_message.emit("📝 Generating reports...")
+            
+            # Determinar ruta de salida
+            output_path = self.file_path
+            if self.output_directory:
+                # Usar directorio personalizado con el nombre base del archivo
+                base_name = os.path.basename(self.file_path)
+                output_path = os.path.join(self.output_directory, base_name)
+                self.log_message.emit(f"✓ Using custom output directory: {self.output_directory}")
             
             report_generator = ReportGenerator(self.output_format)
             
             # Informe para autor
             author_report = report_generator.generate_author_report(
-                self.file_path,
+                output_path,
                 evaluation
             )
             self.log_message.emit(f"✓ Author report: {author_report}")
@@ -150,7 +209,7 @@ class WorkerThread(QThread):
             
             # Informe para auditoría
             auditor_report = report_generator.generate_auditor_report(
-                self.file_path,
+                output_path,
                 evaluation,
                 pubmed_data,
                 keyphrases,
