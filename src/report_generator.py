@@ -4,14 +4,6 @@ Módulo para generación de informes en PDF y DOCX
 import os
 from typing import Dict, List, Optional
 from datetime import datetime
-from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
-from reportlab.lib import colors
 
 
 class ReportGenerator:
@@ -101,6 +93,12 @@ class ReportGenerator:
         manuscript_title: Optional[str]
     ):
         """Genera informe PDF para el autor"""
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+        from reportlab.lib import colors
+        
         doc = SimpleDocTemplate(output_path, pagesize=letter)
         story = []
         styles = getSampleStyleSheet()
@@ -160,6 +158,9 @@ class ReportGenerator:
         manuscript_title: Optional[str]
     ):
         """Genera informe DOCX para el autor"""
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        
         doc = Document()
         
         # Título
@@ -205,6 +206,12 @@ class ReportGenerator:
         manuscript_title: Optional[str]
     ):
         """Genera informe PDF completo para auditoría"""
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+        from reportlab.lib import colors
+        
         doc = SimpleDocTemplate(output_path, pagesize=letter)
         story = []
         styles = getSampleStyleSheet()
@@ -294,6 +301,9 @@ class ReportGenerator:
         manuscript_title: Optional[str]
     ):
         """Genera informe DOCX completo para auditoría"""
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        
         doc = Document()
         
         # Título

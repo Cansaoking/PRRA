@@ -4,9 +4,6 @@ Módulo para extracción de texto de diferentes formatos de documento
 import os
 import re
 from typing import Optional, List
-from docx import Document
-from PyPDF2 import PdfReader
-from striprtf.striprtf import rtf_to_text
 
 
 class DocumentProcessor:
@@ -49,6 +46,7 @@ class DocumentProcessor:
     @staticmethod
     def _extract_from_pdf(file_path: str) -> str:
         """Extrae texto de un archivo PDF"""
+        from PyPDF2 import PdfReader
         reader = PdfReader(file_path)
         text_parts = []
         for page in reader.pages:
@@ -60,12 +58,14 @@ class DocumentProcessor:
     @staticmethod
     def _extract_from_docx(file_path: str) -> str:
         """Extrae texto de un archivo DOCX o DOC"""
+        from docx import Document
         doc = Document(file_path)
         return '\n'.join(paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip())
     
     @staticmethod
     def _extract_from_rtf(file_path: str) -> str:
         """Extrae texto de un archivo RTF"""
+        from striprtf.striprtf import rtf_to_text
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             rtf_content = f.read()
         return rtf_to_text(rtf_content)

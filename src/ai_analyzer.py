@@ -1,9 +1,7 @@
 """
 Módulo para análisis de manuscritos con modelos de IA
 """
-import torch
 from typing import List, Dict, Tuple, Optional
-from transformers import AutoTokenizer, AutoModelForCausalLM
 from src.config import MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS_KEYPHRASES, MAX_OUTPUT_TOKENS_ANALYSIS
 
 
@@ -18,11 +16,12 @@ class AIAnalyzer:
             model_name: Nombre del modelo de HuggingFace a usar
         """
         self.model_name = model_name
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Lazy import: defer torch/transformers import until model is loaded
+        self.device = None
         self.model = None
         self.tokenizer = None
     
-    def load_model(self) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
+    def load_model(self) -> Tuple:
         """
         Carga el modelo y tokenizador
         
@@ -30,6 +29,13 @@ class AIAnalyzer:
             Tupla con (modelo, tokenizador)
         """
         if self.model is None or self.tokenizer is None:
+            # Import torch and transformers only when actually loading the model
+            import torch
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            
+            # Initialize device on first load
+            if self.device is None:
+                self.device = "cuda" if torch.cuda.is_available() else "cpu"
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
@@ -55,6 +61,7 @@ class AIAnalyzer:
         Returns:
             Lista de frases clave
         """
+        import torch
         model, tokenizer = self.load_model()
         
         # Limitar texto de entrada
@@ -149,6 +156,7 @@ class AIAnalyzer:
         Returns:
             Diccionario con secciones de evaluación: major, minor, other, suggestions
         """
+        import torch
         model, tokenizer = self.load_model()
         
         # Preparar abstracts
@@ -299,5 +307,7 @@ class AIAnalyzer:
             self.model = None
             self.tokenizer = None
             
-            if torch.cuda.is_available():
+            # Only import torch if needed to clear cache
+            if self.device == "cuda":
+                import torch
                 torch.cuda.empty_cache()
